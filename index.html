@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WS Traffic Monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg:       #09090f;
+    --surface:  #0f0f1a;
+    --border:   #1e1e30;
+    --accent:   #00ffe0;
+    --accent2:  #7b61ff;
+    --warn:     #ff6b35;
+    --ok:       #00d68f;
+    --text:     #d8d8f0;
+    --muted:    #5a5a7a;
+    --font-ui:  'Syne', sans-serif;
+    --font-mono:'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    gap: 24px;
+  }
+  .logo {
+    font-family: var(--font-ui);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -.5px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .4; transform: scale(.75); }
+  }
+  .status-pill {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; letter-spacing: .05em;
+    padding: 4px 12px;
+    border-radius: 100px;
+    background: rgba(0,255,224,.06);
+    border: 1px solid rgba(0,255,224,.2);
+    color: var(--accent);
+    transition: all .3s;
+  }
+  .status-pill.disconnected {
+    background: rgba(255,107,53,.06);
+    border-color: rgba(255,107,53,.2);
+    color: var(--warn);
+  }
+  .status-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+    animation: pulse 1.5s infinite;
+  }
+
+  /* ── KPI row ── */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .kpi {
+    background: var(--surface);
+    padding: 18px 22px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .kpi-label {
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-value {
+    font-family: var(--font-ui);
+    font-size: 26px; font-weight: 800;
+    color: var(--accent);
+    transition: color .3s;
+  }
+  .kpi-value.warn { color: var(--warn); }
+  .kpi-sub { font-size: 10px; color: var(--muted); }
+
+  /* ── Main grid ── */
+  .main {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .panel {
+    background: var(--surface);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .panel-header .count {
+    background: rgba(123,97,255,.15);
+    color: var(--accent2);
+    padding: 2px 8px; border-radius: 100px; font-size: 10px;
+  }
+  .panel-content { flex: 1; overflow-y: auto; padding: 10px; }
+
+  /* ── Client list ── */
+  .client-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    transition: border-color .2s;
+    animation: slideIn .25s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .client-card:hover { border-color: var(--accent2); }
+  .client-card.monitor { border-color: rgba(0,255,224,.3); }
+  .client-top {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  }
+  .client-id {
+    font-family: var(--font-ui); font-weight: 700;
+    color: var(--accent2); font-size: 14px;
+  }
+  .client-ip { color: var(--muted); font-size: 11px; flex: 1; }
+  .badge {
+    font-size: 9px; padding: 2px 7px; border-radius: 100px; letter-spacing: .05em;
+    background: rgba(0,255,224,.1); color: var(--accent); border: 1px solid rgba(0,255,224,.25);
+  }
+  .client-meta {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+  }
+  .meta-item { display: flex; flex-direction: column; gap: 2px; }
+  .meta-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .meta-value { font-size: 12px; color: var(--text); }
+
+  /* ── Traffic log ── */
+  .log-entry {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 7px 6px;
+    border-bottom: 1px solid rgba(30,30,48,.6);
+    animation: fadeIn .2s ease;
+    font-size: 11.5px;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .log-ts { color: var(--muted); white-space: nowrap; font-size: 10px; padding-top: 1px; }
+  .log-event {
+    font-size: 9px; padding: 2px 7px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: .06em; white-space: nowrap;
+    font-weight: 600; flex-shrink: 0;
+  }
+  .ev-connect    { background: rgba(0,214,143,.12); color: var(--ok); }
+  .ev-disconnect { background: rgba(255,107,53,.12); color: var(--warn); }
+  .ev-message    { background: rgba(123,97,255,.12); color: var(--accent2); }
+  .ev-error      { background: rgba(255,107,53,.25); color: #ff9d7a; }
+  .log-body { color: var(--text); word-break: break-all; line-height: 1.5; }
+  .log-cid { color: var(--accent2); font-weight: 600; }
+
+  /* ── Bytes chart ── */
+  #bytes-chart-wrap {
+    grid-row: span 2;
+    display: flex; flex-direction: column;
+  }
+  canvas#bytes-chart {
+    flex: 1; width: 100% !important; height: 100% !important;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── Connection bar ── */
+  #conn-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px;
+    background: rgba(0,0,0,.3);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+  }
+  #conn-bar input {
+    flex: 1;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px;
+    color: var(--text); font-family: var(--font-mono); font-size: 12px;
+    outline: none; transition: border-color .2s;
+  }
+  #conn-bar input:focus { border-color: var(--accent2); }
+  #conn-bar button {
+    padding: 6px 16px; border-radius: 6px; border: none; cursor: pointer;
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+    background: var(--accent2); color: #fff; transition: opacity .2s;
+  }
+  #conn-bar button:hover { opacity: .8; }
+  #conn-bar button.disconnect { background: var(--warn); }
+
+  #empty { color: var(--muted); padding: 24px 12px; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    WS Monitor
+  </div>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <span id="uptime" style="color:var(--muted);font-size:11px;"></span>
+    <div class="status-pill disconnected" id="status-pill">
+      <div class="dot"></div>
+      <span id="status-text">Disconnected</span>
+    </div>
+  </div>
+</header>
+
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-label">Active Clients</div>
+    <div class="kpi-value" id="kpi-active">—</div>
+    <div class="kpi-sub">online right now</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Total Connections</div>
+    <div class="kpi-value" id="kpi-total">—</div>
+    <div class="kpi-sub">since server start</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Messages</div>
+    <div class="kpi-value" id="kpi-msgs">—</div>
+    <div class="kpi-sub">total received</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Data Transferred</div>
+    <div class="kpi-value" id="kpi-bytes">—</div>
+    <div class="kpi-sub">↑ sent · ↓ recv</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Clients panel -->
+  <div class="panel">
+    <div class="panel-header">
+      Connected Clients
+      <span class="count" id="client-count">0</span>
+    </div>
+    <div class="panel-content" id="client-list">
+      <div id="empty">No clients connected</div>
+    </div>
+  </div>
+
+  <!-- Bytes chart -->
+  <div class="panel" id="bytes-chart-wrap">
+    <div class="panel-header">Throughput (bytes / 5 s)</div>
+    <div class="panel-content" style="padding:16px;position:relative;height:100%">
+      <canvas id="bytes-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Traffic log -->
+  <div class="panel" style="grid-column:1">
+    <div class="panel-header">
+      Traffic Log
+      <span class="count" id="log-count">0</span>
+    </div>
+    <div class="panel-content" id="log-list"></div>
+  </div>
+</div>
+
+<!-- Connection bar -->
+<div id="conn-bar">
+  <label style="color:var(--muted)">WS URL</label>
+  <input id="ws-url" value="ws://localhost:8080" />
+  <button id="conn-btn" onclick="toggleConnect()">Connect</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let ws = null;
+let clientMap = {};
+let serverStartTime = null;
+
+// Chart data
+const CHART_POINTS = 20;
+const chartLabels  = Array(CHART_POINTS).fill("");
+const sentData     = Array(CHART_POINTS).fill(0);
+const recvData     = Array(CHART_POINTS).fill(0);
+let   lastSent = 0, lastRecv = 0;
+
+// ─── Chart ────────────────────────────────────────────────────────────────────
+const ctx = document.getElementById("bytes-chart").getContext("2d");
+const chart = new Chart(ctx, {
+  type: "line",
+  data: {
+    labels: chartLabels,
+    datasets: [
+      { label: "Bytes Sent",  data: sentData, borderColor: "#00ffe0",
+        backgroundColor: "rgba(0,255,224,.08)", fill: true, tension: .4,
+        pointRadius: 2, borderWidth: 2 },
+      { label: "Bytes Recv",  data: recvData, borderColor: "#7b61ff",
+        backgroundColor: "rgba(123,97,255,.08)", fill: true, tension: .4,
+        pointRadius: 2, borderWidth: 2 },
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+    plugins: { legend: { labels: { color: "#5a5a7a", font: { family: "'JetBrains Mono'" } } } },
+    scales: {
+      x: { ticks: { color: "#5a5a7a", maxTicksLimit: 6 },
+           grid: { color: "rgba(30,30,48,.6)" } },
+      y: { ticks: { color: "#5a5a7a", callback: v => fmtBytes(v) },
+           grid: { color: "rgba(30,30,48,.6)" }, beginAtZero: true },
+    },
+  },
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmtBytes(b) {
+  if (b === 0) return "0 B";
+  const u = ["B","KB","MB","GB"];
+  const i = Math.floor(Math.log(Math.abs(b)) / Math.log(1024));
+  return (b / 1024**i).toFixed(1) + " " + u[i];
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString();
+}
+function timeSince(iso) {
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60)   return s + "s ago";
+  if (s < 3600) return Math.floor(s/60) + "m ago";
+  return Math.floor(s/3600) + "h ago";
+}
+
+// ─── KPI update ───────────────────────────────────────────────────────────────
+function updateKPIs(stats, activeClients) {
+  document.getElementById("kpi-active").textContent = activeClients ?? Object.keys(clientMap).length;
+  document.getElementById("kpi-total").textContent  = stats.totalConnections;
+  document.getElementById("kpi-msgs").textContent   = stats.totalMessages;
+  const total = (stats.totalBytesSent || 0) + (stats.totalBytesRecv || 0);
+  document.getElementById("kpi-bytes").textContent  = fmtBytes(total);
+
+  // Chart: delta since last reading
+  const nowSent = stats.totalBytesSent || 0;
+  const nowRecv = stats.totalBytesRecv || 0;
+  sentData.shift(); sentData.push(nowSent - lastSent);
+  recvData.shift(); recvData.push(nowRecv - lastRecv);
+  const t = fmtTime(new Date().toISOString());
+  chartLabels.shift(); chartLabels.push(t);
+  lastSent = nowSent; lastRecv = nowRecv;
+  chart.update();
+}
+
+// ─── Client list render ───────────────────────────────────────────────────────
+function renderClients() {
+  const list = document.getElementById("client-list");
+  const ids  = Object.keys(clientMap);
+  document.getElementById("client-count").textContent = ids.length;
+
+  if (ids.length === 0) {
+    list.innerHTML = '<div id="empty">No clients connected</div>';
+    return;
+  }
+  list.innerHTML = ids.map(id => {
+    const c = clientMap[id];
+    return `
+      <div class="client-card ${c.isMonitor ? 'monitor' : ''}">
+        <div class="client-top">
+          <div class="client-id">#${c.id}</div>
+          <div class="client-ip">${c.ip}</div>
+          ${c.isMonitor ? '<span class="badge">monitor</span>' : ''}
+        </div>
+        <div class="client-meta">
+          <div class="meta-item">
+            <div class="meta-label">Connected</div>
+            <div class="meta-value">${timeSince(c.connectedAt)}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Messages</div>
+            <div class="meta-value">${c.msgCount}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">↑↓ Bytes</div>
+            <div class="meta-value">${fmtBytes((c.bytesSent||0)+(c.bytesRecv||0))}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+// ─── Log render ───────────────────────────────────────────────────────────────
+function addLogEntry(e) {
+  const list = document.getElementById("log-list");
+  const div  = document.createElement("div");
+  div.className = "log-entry";
+
+  const evClass = { connect:"ev-connect", disconnect:"ev-disconnect",
+                    message:"ev-message", error:"ev-error" }[e.event] || "ev-message";
+
+  const preview = e.preview ? `<span style="color:var(--muted)"> · ${e.preview}</span>` : "";
+  const bytes   = e.bytes   ? ` <span style="color:var(--muted)">(${fmtBytes(e.bytes)})</span>` : "";
+
+  div.innerHTML = `
+    <span class="log-ts">${fmtTime(e.ts)}</span>
+    <span class="log-event ${evClass}">${e.event}</span>
+    <span class="log-body"><span class="log-cid">#${e.clientId}</span>${bytes}${preview}</span>`;
+
+  list.insertBefore(div, list.firstChild);
+
+  // trim
+  while (list.children.length > 100) list.removeChild(list.lastChild);
+  document.getElementById("log-count").textContent = list.children.length;
+}
+
+// ─── WebSocket connection ─────────────────────────────────────────────────────
+function toggleConnect() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close(); return;
+  }
+  const url = document.getElementById("ws-url").value.trim();
+  connect(url);
+}
+
+function connect(url) {
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setStatus(true);
+    // Register as monitor
+    ws.send(JSON.stringify({ type: "monitor_register" }));
+  };
+
+  ws.onmessage = ({ data }) => {
+    let msg;
+    try { msg = JSON.parse(data); } catch { return; }
+
+    if (msg.type === "snapshot") {
+      serverStartTime = msg.stats.startedAt;
+      clientMap = {};
+      (msg.clients || []).forEach(c => clientMap[c.id] = c);
+      updateKPIs(msg.stats, msg.clients.length);
+      renderClients();
+      // Load historical log
+      (msg.log || []).slice().reverse().forEach(addLogEntry);
+      return;
+    }
+
+    if (msg.type === "stats") {
+      updateKPIs(msg.stats, msg.activeClients);
+      return;
+    }
+
+    if (msg.type === "client_connected") {
+      clientMap[msg.clientId] = { id: msg.clientId, ip: msg.ip,
+        connectedAt: msg.connectedAt, msgCount: 0, bytesSent: 0, bytesRecv: 0 };
+      addLogEntry({ event: "connect", clientId: msg.clientId, ip: msg.ip, ts: msg.connectedAt || new Date().toISOString() });
+      renderClients();
+      return;
+    }
+
+    if (msg.type === "client_disconnected") {
+      delete clientMap[msg.clientId];
+      addLogEntry({ event: "disconnect", clientId: msg.clientId, ts: msg.ts });
+      renderClients();
+      return;
+    }
+
+    if (msg.type === "message") {
+      if (clientMap[msg.clientId]) {
+        clientMap[msg.clientId].msgCount++;
+        clientMap[msg.clientId].bytesRecv = (clientMap[msg.clientId].bytesRecv || 0) + (msg.bytes || 0);
+        renderClients();
+      }
+      addLogEntry({ event: "message", clientId: msg.clientId, bytes: msg.bytes,
+                    preview: msg.preview, ts: msg.ts });
+      return;
+    }
+
+    if (msg.type === "client_error") {
+      addLogEntry({ event: "error", clientId: msg.clientId,
+                    preview: msg.message, ts: msg.ts });
+      return;
+    }
+  };
+
+  ws.onclose = () => { setStatus(false); ws = null; };
+  ws.onerror = (e) => console.error("WS error", e);
+}
+
+function setStatus(connected) {
+  const pill = document.getElementById("status-pill");
+  const text = document.getElementById("status-text");
+  const btn  = document.getElementById("conn-btn");
+  if (connected) {
+    pill.classList.remove("disconnected");
+    text.textContent = "Live";
+    btn.textContent  = "Disconnect";
+    btn.classList.add("disconnect");
+  } else {
+    pill.classList.add("disconnected");
+    text.textContent = "Disconnected";
+    btn.textContent  = "Connect";
+    btn.classList.remove("disconnect");
+    clientMap = {};
+    renderClients();
+  }
+}
+
+// ─── Uptime ticker ────────────────────────────────────────────────────────────
+setInterval(() => {
+  if (!serverStartTime) return;
+  const s = Math.floor((Date.now() - new Date(serverStartTime)) / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  document.getElementById("uptime").textContent =
+    `uptime ${h}h ${m}m ${sec}s`;
+}, 1000);
+
+// ─── Refresh client timers ────────────────────────────────────────────────────
+setInterval(renderClients, 30000);
+</script>
+</body>
+</html>
